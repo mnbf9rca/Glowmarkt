@@ -19,8 +19,9 @@ for r in resources:
     print(resourceID)
     seconds_in_one_day = 60*60*24
     
-    result = g.get_data_for_range(resource_id=resourceID,start=(int)(time.time()-(60*seconds_in_one_day)), end=(int)(time.time()),period=glow.Aggregations.P1M)
+    result = g.get_data_for_range(resource_id=resourceID,start=(int)(time.time()-(10*seconds_in_one_day)), end=(int)(time.time()),period=glow.Aggregations.PT30M)
     print(type(result))
+    print(result)
 
 # need to iterate through the data types in the response
 # then work backwards at highest granularity until there are no more responses

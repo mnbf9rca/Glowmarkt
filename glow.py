@@ -5,23 +5,31 @@
 # issued under MIT License
 #
 
-from enum import Enum
 import requests
 import json
 import time
+import logging
 from datetime import datetime, timedelta
+from enum import Enum
 from helpers import getEnvVar, urljoin
 
 
 class glow:
     class Aggregations(Enum):
-        PT1M = "PT1M"    # minute level, only elec
-        PT30M = "PT30M"  # 30 minute level
-        PT1H = "PT1H"    # hour level
-        P1D = "P1D"      # day level
-        P1W = "P1W"      # week level, starting Monday
-        P1M = "P1M"      # month level
-        P1Y = "P1Y"      # year level
+        '''
+        Aggregation period parameters.
+        Enum returns the string value and query limit (in days)
+        according to https://docs.glowmarkt.com/GlowmarktApiDataRetrievalDocumentationIndividualUser.pdf
+        '''
+        PT1M = {"period": "PT1M", "duration": 2}     # minute level only elec
+        PT30M = {"period": "PT30M", "duration": 10}  # 30 minute level
+        PT1H = {"period": "PT1H", "duration": 31}    # hour level
+        P1D = {"period": "P1D", "duration": 31}      # day level
+        P1W = {"period": "P1W", "duration": 42}      # week level, starting Monday
+        P1M = {"period": "P1M", "duration": 366}     # month level
+        P1Y = {"period": "P1Y", "duration": 366}     # year level
+
+    # aggregations have a maximum data volume per query that can be returned. We try to match this:
 
     def __init__(self,
                  appid,
@@ -41,6 +49,7 @@ class glow:
         self._api_root = "https://api.glowmarkt.com/"
         self._cached_jwt_expiry = time.time()
         self._cached_jwt_token = self._fetchJWT()
+
         super().__init__()
 
     def _fetchJWT(self) -> str:
@@ -97,21 +106,26 @@ class glow:
 
         query_url = urljoin(self._api_root, "api/v0-1/resource", resource_id, "readings")
 
-        start_time = datetime.utcfromtimestamp(start)
-        end_time = datetime.utcfromtimestamp(end)
-
         # quickly check if they've passed an enum - get the value otherwise assume it's a string
-        period = period.value if isinstance(period, self.Aggregations) else period
+        if isinstance(period, self.Aggregations):
+            query_page_size = period.value["duration"] * 24*60*60
+            period = period.value["period"]
+        else:
+            # not an enum; take their start + end as valid
+            query_page_size = end-start
+        logging.info(f"inputs - start {start} ({datetime.utcfromtimestamp(start).isoformat()}), end {end} ({datetime.utcfromtimestamp(end).isoformat()}), query_page_size {query_page_size}, period {period}")
 
-        params = {
-            "to": end_time.isoformat(),
-            "from": start_time.isoformat(),
-            "period": period,
-            "offset": 0,
-            "function": "sum"}
-        print("params", params)
-        response = requests.get(query_url, headers=headers, params=params)
-        if not response.ok:
-            raise Exception(
-                f"Didn't get HTTP 200 (OK) response - status_code from server: {response.status_code}\n{response.text}")
-        return response.json()
+        resultset = []
+        for page_start in range(start, end, query_page_size):
+            params = {
+                "to": datetime.utcfromtimestamp(min(page_start + query_page_size, end)).isoformat(),
+                "from": datetime.utcfromtimestamp(page_start).isoformat(),
+                "period": period,
+                "offset": 0,
+                "function": "sum"}
+            response = requests.get(query_url, headers=headers, params=params)
+            if not response.ok:
+                raise Exception(
+                    f"Didn't get HTTP 200 (OK) response - status_code from server: {response.status_code}\n{response.text}")
+            resultset.append(response.json())
+        return resultset
