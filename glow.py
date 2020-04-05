@@ -15,6 +15,29 @@ from helpers import getEnvVar, urljoin
 
 
 class glow:
+    def __init__(self,
+                 appid: str,
+                 username: str,
+                 password: str):
+        '''Creates a glow class for interacting with the glow API
+
+        Args:
+            appid:      App ID issued by glowmarkt. One AppID for all for now.
+            username:   username for glowmarkt API
+            password:   password for glowmarkt API
+
+        Returns:
+            None
+        '''
+        self._username = username
+        self._password = password
+        self._appid = appid
+        self._api_root = "https://api.glowmarkt.com/"
+        self._cached_jwt_expiry = time.time()
+        self._cached_jwt_token = self._fetchJWT()
+
+        super().__init__()
+
     class Aggregations(Enum):
         '''
         Aggregation period parameters.
@@ -29,36 +52,16 @@ class glow:
         P1M = {"period": "P1M", "duration": 366}     # month level
         P1Y = {"period": "P1Y", "duration": 366}     # year level
 
-    # aggregations have a maximum data volume per query that can be returned. We try to match this:
-
-    def __init__(self,
-                 appid,
-                 username,
-                 password):
-        '''
-        Creates a glow class for interacting with the glow API
-
-        Args:
-            appod:      App ID issued by glowmarkt. One AppID for all for now.
-            username:   username for glowmarkt API
-            password:   password for glowmarkt API
-        '''
-        self._username = username
-        self._password = password
-        self._appid = appid
-        self._api_root = "https://api.glowmarkt.com/"
-        self._cached_jwt_expiry = time.time()
-        self._cached_jwt_token = self._fetchJWT()
-
-        super().__init__()
-
     def _fetchJWT(self) -> str:
         """
         fetches a JWT from the glowmarkt API. If the current token is still valid, returns it. If it's due to expire soon, refreshes it.
 
-        returns:
-            JWT - issued token
-            expiry - unix timestamp of the token's expiry
+        Args:
+            None
+
+        Returns:
+            JWT:    issued token
+
         """
         if self._cached_jwt_expiry <= time.time():
             credentials = {"username": self._username, "password": self._password}
@@ -74,6 +77,15 @@ class glow:
         return self._cached_jwt_token
 
     def get_resources(self) -> dict:
+        '''
+        Fetches all of the resources available for this account
+
+        Args:
+            None
+
+        Returns:
+            response from Glowmarkt
+        '''
         headers = {"applicationId": self._appid,
                    "Content-Type": "application/json",
                    "token": self._fetchJWT()}
@@ -83,10 +95,9 @@ class glow:
                 f"Didn't get HTTP 200 (OK) response - status_code from server: {response.status_code}\n{response.text}")
         return response.json()
 
-    def get_data_for_range(self, resource_id: str, start: int, end: int, period: Aggregations) -> dict:
+    def get_data_for_range(self, resource_id: str, start: int, end: int, period: glow.Aggregations) -> list:
         '''
-        Desc:
-            fetches the data for a given range at a given periodicity
+            fetches the data for a given range at a given periodicity. Returns a list of result sets. Automatically pages results.
         Args:
             resource_id:    a valid resourceId for this account
             start:          earliest datetime to receive for, in UTC. Expects unix(posix) timestamp
@@ -99,6 +110,9 @@ class glow:
                                 P1W (week level, starting Monday)
                                 P1M (month level)
                                 P1Y (year level)
+        Returns:
+            list[dict] a list of dict results sets returned by the server. Each resultset is a JSON object. Note the list may have 
+            one member, however if hte duration exceeds maximum query size, mutliple results are returned in the list.
         '''
         headers = {"applicationId": self._appid,
                    "Content-Type": "application/json",
@@ -113,7 +127,8 @@ class glow:
         else:
             # not an enum; take their start + end as valid
             query_page_size = end-start
-        logging.info(f"inputs - start {start} ({datetime.utcfromtimestamp(start).isoformat()}), end {end} ({datetime.utcfromtimestamp(end).isoformat()}), query_page_size {query_page_size}, period {period}")
+        logging.info(
+            f"inputs - start {start} ({datetime.utcfromtimestamp(start).isoformat()}), end {end} ({datetime.utcfromtimestamp(end).isoformat()}), query_page_size {query_page_size}, period {period}")
 
         resultset = []
         for page_start in range(start, end, query_page_size):
