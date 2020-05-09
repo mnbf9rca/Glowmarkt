@@ -137,7 +137,8 @@ class glow:
                 "from": datetime.utcfromtimestamp(page_start).isoformat(),
                 "period": period,
                 "offset": 0,
-                "function": "sum"}
+                "function": "sum",
+                "nulls": 1}
             response = requests.get(query_url, headers=headers, params=params)
             if not response.ok:
                 raise Exception(
